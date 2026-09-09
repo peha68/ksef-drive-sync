@@ -1,0 +1,23 @@
+[Unit]
+Description=Synchronizacja faktur KSeF -> Google Drive
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/ksef-drive-sync
+ExecStart=/usr/bin/node /opt/ksef-drive-sync/src/index.js
+User=ksefsync
+Group=ksefsync
+# Zmienne środowiskowe są wczytywane z pliku .env w WorkingDirectory przez
+# bibliotekę dotenv - nie trzeba ich duplikować w systemd.
+
+# Dodatkowa (poza timeoutami w samym kodzie) asekuracja na wypadek, gdyby
+# proces mimo wszystko się zawiesił - systemd zabije go po 30 min.
+TimeoutStartSec=1800
+
+# Odizolowanie procesu (dobra praktyka na serwerze produkcyjnym)
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/ksef-drive-sync/data
+PrivateTmp=true

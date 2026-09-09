@@ -1,0 +1,21 @@
+[Unit]
+Description=Archiwum miesięczne faktur KSeF -> mail (ZIP za poprzedni miesiąc)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/ksef-drive-sync
+ExecStart=/usr/bin/node /opt/ksef-drive-sync/src/monthlyArchive.js
+User=ksefsync
+Group=ksefsync
+# Zmienne środowiskowe są wczytywane z pliku .env w WorkingDirectory przez
+# bibliotekę dotenv - nie trzeba ich duplikować w systemd.
+
+TimeoutStartSec=1800
+
+# Odizolowanie procesu (dobra praktyka na serwerze produkcyjnym)
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/ksef-drive-sync/data
+PrivateTmp=true

@@ -1,0 +1,11 @@
+[Unit]
+Description=Uruchamia synchronizację KSeF -> Google Drive raz dziennie
+
+[Timer]
+# Codziennie o 5:30 + losowe przesunięcie do 10 min (żeby nie obciążać API punktowo)
+OnCalendar=*-*-* 05:30:00
+RandomizedDelaySec=600
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,30 @@
+{
+  "name": "ksef-drive-sync",
+  "version": "0.1.0",
+  "description": "Pobiera faktury z KSeF 2.0 i zapisuje je na Google Drive w folderach RRRR/MM, z generowaniem PDF, powiadomieniami mailowymi i archiwum miesięcznym.",
+  "type": "module",
+  "main": "src/index.js",
+  "license": "MIT",
+  "author": "peha68",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/peha68/ksef-drive-sync.git"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "sync": "node src/index.js",
+    "archive": "node src/monthlyArchive.js",
+    "backfill-pdfs": "node scripts/backfill-pdfs.js",
+    "get-refresh-token": "node scripts/get-refresh-token.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "fast-xml-parser": "^5.11.1",
+    "googleapis": "^140.0.0",
+    "jszip": "^3.10.2",
+    "ksef-client-ts": "^0.2.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

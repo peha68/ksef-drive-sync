@@ -322,6 +322,76 @@ Ręczny test w dowolnym momencie (pakuje *poprzedni* miesiąc względem dzisiejs
 sudo -u ksefsync node src/monthlyArchive.js
 ```
 
+### 5a. Organizacja plików na Dysku i ręczne dodawanie skanów
+
+**Struktura folderów** (tworzona automatycznie przez `driveClient.js`, patrz
+`ensureYearMonthFolder`/`findYearMonthFolder`):
+
+```
+<GOOGLE_DRIVE_ROOT_FOLDER_ID>/
+├── 2026/
+│   ├── 08/
+│   │   ├── ksef_koszt_<numer_ksef>.xml
+│   │   ├── ksef_koszt_<numer_ksef>.pdf
+│   │   ├── ksef_przychod_<numer_ksef>.xml
+│   │   ├── ksef_przychod_<numer_ksef>.pdf
+│   │   └── scan_koszt_<opis>.jpg          # ręcznie dodane, patrz niżej
+│   └── 09/
+│       └── ...
+└── _Archiwa_miesieczne/    # tylko fallback dla ZIP-ów >15MB (sekcja 5) - nie wrzucaj tu nic ręcznie
+```
+
+Rok i miesiąc (`01`-`12`, zawsze dwucyfrowy) odpowiadają dacie wystawienia
+faktury (`issueDate` z KSeF), nie dacie pobrania. Numer w nazwie pliku to
+numer KSeF z usuniętymi znakami spoza `[a-zA-Z0-9-]` (patrz
+`buildFilenames()` w `src/index.js`).
+
+**Ręczne skany (paragony, faktury spoza KSeF - np. gotówkowe, zagraniczne,
+bez NIP-u):** `src/monthlyArchive.js` pakuje do ZIP-a **wszystkie** pliki
+znalezione w folderze `<rok>/<miesiąc>`, niezależnie od nazwy (patrz
+`listFilesInFolder()` w `driveClient.js` - nie filtruje po prefiksie). Dzięki
+temu wystarczy wrzucić skan bezpośrednio do właściwego folderu miesiąca, żeby
+trafił do archiwum dla księgowości razem z fakturami z KSeF. Żeby zachować
+spójność z automatycznym nazewnictwem (i żeby dało się łatwo odróżnić koszt
+od przychodu na pierwszy rzut oka), trzymaj się konwencji:
+
+```
+scan_koszt_<krótki opis>.<jpg|png|pdf>
+scan_przychod_<krótki opis>.<jpg|png|pdf>
+```
+
+np. `scan_koszt_paliwo_orlen.jpg`, `scan_koszt_parking_lotnisko.pdf`. To
+tylko konwencja nazewnictwa (nic w kodzie jej nie wymusza ani nie
+weryfikuje) - w przeciwieństwie do plików z KSeF, **nie ma tu żadnego
+deduplikowania**: dwa razy wrzucony ten sam skan pod różnymi nazwami trafi do
+archiwum dwa razy. Jeśli folder `<rok>/<miesiąc>` jeszcze nie istnieje (bo w
+danym miesiącu nie było jeszcze żadnej faktury z KSeF), utwórz go ręcznie na
+Dysku pod właściwym rokiem, z tą samą, dwucyfrową konwencją nazw (`01`-`12`).
+
+**Dodawanie skanu przez asystenta AI (Claude albo ChatGPT) - w praktyce z
+telefonu:** zamiast ręcznie szukać folderu i wpisywać nazwę, można zrobić
+zdjęcie paragonu/faktury i poprosić o to asystenta podłączonego do tego
+samego Dysku Google:
+
+1. Wyślij zdjęcie w rozmowie i poproś, żeby rozpoznał datę wystawienia (do
+   ustalenia `<rok>/<miesiąc>`) oraz czy to koszt czy przychód.
+2. Jeśli asystent ma aktywne połączenie z Google Drive (w Claude: connector
+   "Google Drive" w ustawieniach konta/organizacji; w ChatGPT: funkcja
+   Connectors w ustawieniach - dokładne miejsce w interfejsie zmienia się
+   między wersjami, więc sprawdź aktualne menu), poproś go wprost, żeby
+   zapisał zdjęcie w folderze `<rok>/<miesiąc>` pod nazwą
+   `scan_koszt_<krótki opis>.jpg` (albo `scan_przychod_...`) - jeśli folder
+   miesiąca jeszcze nie istnieje, poproś, żeby go najpierw utworzył pod
+   właściwym rokiem, dwucyfrowo.
+3. Jeśli asystent nie ma zapisu do Dysku (tylko czyta/opisuje zdjęcie) -
+   niech przynajmniej wypisze proponowaną ścieżkę i nazwę pliku, a samo
+   wrzucenie zrób ręcznie przez aplikację/stronę Google Drive.
+
+⚠️ **Zawsze sprawdź, co asystent faktycznie zapisał** - odczyt daty/kwoty ze
+zdjęcia (zwłaszcza odręcznych paragonów albo słabej jakości fotografii) bywa
+błędny, a przy braku dedupu literówka w nazwie czy zły miesiąc nie zostaną
+wykryte automatycznie przez żaden mechanizm w tym projekcie.
+
 ## 6. Uzupełnianie brakujących PDF-ów
 
 Dedup w `src/index.js` sprawdza tylko obecność pliku XML - jeśli PDF się nie

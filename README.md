@@ -546,6 +546,7 @@ poleceniach z `sudo`.
 
 ## Możliwe rozszerzenia na później
 
-- Przed 31.12.2026 (wygaśnięcie tokenów KSeF): przełącz `KSEF_AUTH_METHOD`
-  na `certificate` na produkcji (obsługa już gotowa, patrz sekcja "1b.
-  Metoda certificate") i unieważnij stary token w aplikacji KSeF.
+- [x] Certyfikat KSeF na produkcji (od 2026-09-10) - `KSEF_AUTH_METHOD=
+  certificate` jest aktywne na serwerze produkcyjnym. TODO: unieważnij stary
+  token autoryzacyjny w aplikacji KSeF (patrz sekcja "1a. Metoda `token`"),
+  skoro nie jest już używany.

@@ -385,6 +385,70 @@ sudo logrotate -d /etc/logrotate.d/ksef-drive-sync   # -d = "dry run", tylko pok
 sudo logrotate -f /etc/logrotate.d/ksef-drive-sync   # -f = wymusza rotację od razu
 ```
 
+## 8. Aktualizacja kodu na serwerze (redeploy)
+
+Projekt nie ma CI/CD (patrz sekcja "Testowanie") - aktualizacja kodu na
+serwerze produkcyjnym po zmianach lokalnych (na Macu) jest ręczna, przez
+`rsync`+`ssh`.
+
+**1. Zsynchronizuj kod z Maca na serwer**, do katalogu tymczasowego (nie
+bezpośrednio do `/opt/ksef-drive-sync`, żeby nie nadpisywać plików w
+trakcie, gdyby usługa akurat działała):
+
+```bash
+rsync -av --exclude 'node_modules' --exclude 'data' --exclude '.env' \
+  --exclude 'certs' --exclude '.git' \
+  "/Users/mac/Documents/GitHub 2/ksef-drive-sync/" \
+  mcten@192.168.2.143:~/ksef-drive-sync-deploy/
+```
+
+⚠️ **`--exclude '.git'` jest konieczny.** Bez niego cała historia commitów
+(`.git/`) też się skopiuje na serwer produkcyjny - niepotrzebne, i trochę
+ryzykowne (przypadkowe polecenie `git` na serwerze mogłoby coś nadpisać).
+Jeśli `.git/` już kiedyś trafił do `/opt/ksef-drive-sync` (np. przy
+wcześniejszym deployu bez tego wykluczenia), posprzątaj go ręcznie:
+`sudo rm -rf /opt/ksef-drive-sync/.git`.
+
+**2. Certyfikat/klucz KSeF** - tylko przy pierwszym wdrożeniu albo gdy
+certyfikat się zmienia (**nie** przy zwykłej aktualizacji kodu), bo
+`certs/` nigdy nie wchodzi do repo ani do `rsync` z kroku 1:
+
+```bash
+scp "/Users/mac/Documents/GitHub 2/ksef-drive-sync/certs/ksef.crt" \
+    "/Users/mac/Documents/GitHub 2/ksef-drive-sync/certs/ksef.key" \
+    mcten@192.168.2.143:~/
+```
+
+**3. Na serwerze** (SSH jako zwykły użytkownik, np. `mcten`) - wgraj kod z
+właściwym właścicielem i doinstaluj zależności:
+
+```bash
+sudo rsync -av --chown=ksefsync:ksefsync /home/mcten/ksef-drive-sync-deploy/ /opt/ksef-drive-sync/
+rm -rf /home/mcten/ksef-drive-sync-deploy
+
+cd /opt/ksef-drive-sync
+sudo -u ksefsync npm install --omit=dev
+```
+
+**4. Tylko jeśli zmieniły się pliki `.service`/`.timer`/`logrotate`** (nie
+przy zwykłej aktualizacji kodu aplikacji) - doinstaluj je i przeładuj
+systemd (patrz sekcje "4. Automatyczne uruchamianie" i "7. Alerty o awarii
+i rotacja logów"):
+
+```bash
+sudo cp systemd/*.service systemd/*.timer /etc/systemd/system/
+sudo cp systemd/ksef-drive-sync.logrotate /etc/logrotate.d/ksef-drive-sync
+sudo systemctl daemon-reload
+```
+
+**5. Ręczny test, zanim zaufasz automatycznemu timerowi:**
+
+```bash
+sudo systemctl start ksef-drive-sync.service
+sudo systemctl status ksef-drive-sync.service
+journalctl -u ksef-drive-sync.service -n 50 --no-pager
+```
+
 ## Testowanie
 
 Ten projekt **nie ma automatycznego zestawu testów** (bez Jest/Vitest, bez

@@ -34,6 +34,39 @@ prefiksie w nazwie pliku jest jedynym wbudowanym podziałem.
   każdej dystrybucji Linuksa, która go ma). Bez systemd da się uruchamiać
   ręcznie albo przez `cron`.
 
+## Struktura projektu
+
+```
+ksef-drive-sync/
+├── src/
+│   ├── index.js            # Główny skrypt - codzienna synchronizacja (KSeF -> Drive)
+│   ├── config.js           # Wczytywanie i walidacja zmiennych z .env
+│   ├── ksefClient.js        # Wrapper wokół biblioteki ksef-client-ts (auth, zapytania, pobieranie XML)
+│   ├── driveClient.js       # Operacje na Google Drive (foldery, upload, listowanie, linki)
+│   ├── invoiceParser.js     # Parsuje XML FA(3) do prostego obiektu JS
+│   ├── invoiceHtml.js       # Renderuje obiekt faktury do HTML (layout PDF)
+│   ├── pdfRenderer.js       # Konwertuje HTML -> PDF przez wkhtmltopdf
+│   ├── mailClient.js        # Wysyłka maili przez Gmail API (z załącznikami)
+│   ├── monthlyArchive.js    # Archiwum miesięczne: ZIP za poprzedni miesiąc -> mail
+│   └── logger.js            # Prosty logger (konsola + plik data/sync.log)
+├── scripts/
+│   ├── get-refresh-token.js # Jednorazowa autoryzacja OAuth (uruchamiane lokalnie)
+│   └── backfill-pdfs.js     # Dogenerowuje brakujące PDF-y dla już pobranych XML-i
+├── systemd/
+│   ├── ksef-drive-sync.service / .timer          # Codzienny sync
+│   └── ksef-drive-sync-monthly.service / .timer  # Miesięczne archiwum (10. dnia)
+├── data/                    # Log (data/sync.log) - tworzone automatycznie, w .gitignore
+├── .env.example             # Szablon konfiguracji (skopiuj do .env i uzupełnij)
+└── .env                     # Twoja prawdziwa konfiguracja z sekretami - NIGDY nie commituj (w .gitignore)
+```
+
+Przepływ danych w skrócie: `index.js` woła `ksefClient.js` (pobranie faktur),
+potem `driveClient.js` (upload XML), potem `invoiceParser.js` ->
+`invoiceHtml.js` -> `pdfRenderer.js` (wygenerowanie i upload PDF), na końcu
+`mailClient.js` (podsumowanie). `monthlyArchive.js` i `backfill-pdfs.js` to
+osobne wejścia korzystające z tych samych modułów (`driveClient.js`,
+`invoiceParser.js` itd.) - nie duplikują logiki.
+
 ## Ważna uwaga o bibliotece KSeF
 
 Ministerstwo Finansów nie publikuje oficjalnego SDK dla Node.js. Ten projekt

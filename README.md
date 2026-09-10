@@ -20,8 +20,8 @@ prefiksie w nazwie pliku jest jedynym wbudowanym podziałem.
 ## Wymagania
 
 - **Node.js 20+** (deweloperski/produkcyjny runtime; `engines` w `package.json`).
-- **Konto w KSeF 2.0** z wygenerowanym tokenem autoryzacyjnym (test i/lub
-  prod) - patrz sekcja "Konfiguracja KSeF".
+- **Konto w KSeF 2.0** z wygenerowanym tokenem autoryzacyjnym **albo**
+  certyfikatem KSeF (test i/lub prod) - patrz sekcja "Konfiguracja KSeF".
 - **Konto Google** (Gmail) z dostępem do Google Cloud Console, do skonfigurowania
   OAuth 2.0 dla Google Drive API i Gmail API - patrz sekcja "Autoryzacja
   Google Drive (OAuth)". Nie jest wymagane konto Google Workspace - zwykłe,
@@ -56,6 +56,7 @@ ksef-drive-sync/
 │   ├── ksef-drive-sync.service / .timer          # Codzienny sync
 │   └── ksef-drive-sync-monthly.service / .timer  # Miesięczne archiwum (10. dnia)
 ├── data/                    # Log (data/sync.log) - tworzone automatycznie, w .gitignore
+├── certs/                   # Certyfikat KSeF (.crt/.key), tylko przy KSEF_AUTH_METHOD=certificate - w .gitignore
 ├── .env.example             # Szablon konfiguracji (skopiuj do .env i uzupełnij)
 └── .env                     # Twoja prawdziwa konfiguracja z sekretami - NIGDY nie commituj (w .gitignore)
 ```
@@ -87,16 +88,56 @@ zera szyfrowania RSA/AES i podpisów XAdES wymaganych przez API KSeF 2.0.
 
 ## 1. Konfiguracja KSeF
 
+Projekt obsługuje **dwie metody uwierzytelniania**, przełączane jedną
+zmienną `KSEF_AUTH_METHOD` w `.env` (`token` albo `certificate`) — patrz
+`src/ksefClient.js`. Wypełnij tylko sekcję `.env` odpowiadającą wybranej
+metodzie.
+
+### 1a. Metoda `token` (domyślna, prostsza)
+
 1. Zaloguj się do aplikacji KSeF (https://ksef.mf.gov.pl) swoim NIP-em.
 2. W zakładce dot. tokenów wygeneruj **token autoryzacyjny** z uprawnieniem
    do odczytu/pobierania faktur.
 3. Zapisz go w `.env` jako `KSEF_AUTH_TOKEN` (patrz `.env.example`).
 
-⚠️ Token KSeF przestanie działać **31.12.2026** — Ministerstwo przechodzi na
-uwierzytelnianie certyfikatem. Przed tą datą trzeba będzie zaktualizować
-`src/ksefClient.js`, żeby używał certyfikatu (XAdES) zamiast tokenu.
+⚠️ Token KSeF przestanie działać **31.12.2026** — dlatego istnieje też
+metoda `certificate` poniżej.
 
-## 1b. Generowanie PDF
+### 1b. Metoda `certificate`
+
+KSeF 2.0 wprowadził własny, **bezpłatny** typ certyfikatu (osobny od
+płatnego, komercyjnego podpisu kwalifikowanego) - dla jednoosobowej
+działalności gospodarczej wystarczy darmowy **Profil Zaufany**, żeby go
+zdobyć.
+
+1. Wejdź na https://ksef.podatki.gov.pl -> "Bezpłatne narzędzia KSeF 2.0" ->
+   **Aplikacja Podatnika KSeF 2.0**.
+2. Zaloguj się Profilem Zaufanym (albo podpisem/pieczęcią kwalifikowaną,
+   jeśli już je masz).
+3. Złóż wniosek o **certyfikat Typ 1** ("uwierzytelnienie") - Typ 2 jest do
+   trybu offline/awaryjnego i tu jest niepotrzebny.
+4. Aplikacja wygeneruje parę plików do pobrania: certyfikat (`.crt`) i
+   klucz prywatny (`.key`, zwykle zaszyfrowany hasłem). Certyfikat ważny
+   maks. 2 lata, powiązany z Twoim NIP-em.
+5. Jeśli klucz jest zaszyfrowany, odszyfruj go lokalnie (poda hasło tylko
+   w Twoim terminalu, nigdy nikomu indziej):
+   ```bash
+   openssl pkey -in twoj-klucz.key -out twoj-klucz-decrypted.key
+   ```
+6. Umieść oba pliki w katalogu `certs/` w tym projekcie (katalog jest w
+   `.gitignore` - **nigdy nie commituj tych plików**), np. `certs/ksef.crt`
+   i `certs/ksef.key`.
+7. W `.env` ustaw:
+   ```
+   KSEF_AUTH_METHOD=certificate
+   KSEF_CERT_FILE=./certs/ksef.crt
+   KSEF_KEY_FILE=./certs/ksef.key
+   ```
+
+Na serwerze pamiętaj o restrykcyjnych uprawnieniach na klucz prywatny:
+`chmod 600 certs/ksef.key` (analogicznie do `.env`).
+
+## 1c. Generowanie PDF
 
 ⚠️ **Ministerstwo Finansów nie publikuje oficjalnego szablonu wizualizacji
 dla FA(3)** (sprawdzone na ksef.podatki.gov.pl - w przeciwieństwie do
@@ -505,4 +546,6 @@ poleceniach z `sudo`.
 
 ## Możliwe rozszerzenia na później
 
-- Przejście z tokenu na certyfikat przed końcem 2026.
+- Przed 31.12.2026 (wygaśnięcie tokenów KSeF): przełącz `KSEF_AUTH_METHOD`
+  na `certificate` na produkcji (obsługa już gotowa, patrz sekcja "1b.
+  Metoda certificate") i unieważnij stary token w aplikacji KSeF.

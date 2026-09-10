@@ -10,6 +10,7 @@
  * Ten moduł izoluje resztę aplikacji od konkretnej biblioteki - jeśli jej API
  * się zmieni, poprawki wystarczy zrobić tylko tutaj.
  */
+import { readFileSync } from 'node:fs';
 import { KSeFClient } from 'ksef-client-ts';
 import { config } from './config.js';
 import { logger } from './logger.js';
@@ -23,12 +24,24 @@ export async function getKsefClient() {
 
   const client = new KSeFClient({ environment });
 
-  logger.info(`Autoryzacja w KSeF (${environment}) dla NIP ${config.ksef.nip}...`);
+  logger.info(
+    `Autoryzacja w KSeF (${environment}) dla NIP ${config.ksef.nip} (metoda: ${config.ksef.authMethod})...`,
+  );
 
-  // client.loginWithToken(token, nip) - metoda wysokopoziomowa, sama robi
-  // challenge -> szyfrowanie tokenu (crypto.init() wewnątrz) -> wymianę na
-  // access/refresh token i zapisuje je w wewnętrznym authManagerze klienta.
-  await client.loginWithToken(config.ksef.authToken, config.ksef.nip);
+  if (config.ksef.authMethod === 'certificate') {
+    // client.loginWithCertificate(certPem, keyPem, nip) - certyfikat KSeF
+    // Typ 1 ("uwierzytelnienie"), wygenerowany w Aplikacji Podatnika KSeF 2.0
+    // (patrz README, sekcja "Uwierzytelnianie certyfikatem"). Docelowy
+    // zamiennik tokenu, który wygasa 31.12.2026.
+    const certPem = readFileSync(config.ksef.certFile, 'utf-8');
+    const keyPem = readFileSync(config.ksef.keyFile, 'utf-8');
+    await client.loginWithCertificate(certPem, keyPem, config.ksef.nip);
+  } else {
+    // client.loginWithToken(token, nip) - metoda wysokopoziomowa, sama robi
+    // challenge -> szyfrowanie tokenu (crypto.init() wewnątrz) -> wymianę na
+    // access/refresh token i zapisuje je w wewnętrznym authManagerze klienta.
+    await client.loginWithToken(config.ksef.authToken, config.ksef.nip);
+  }
 
   logger.info('Autoryzacja w KSeF zakończona sukcesem.');
 

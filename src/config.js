@@ -8,11 +8,19 @@ function required(name) {
   return value;
 }
 
+// token: KSEF_AUTH_TOKEN wygenerowany w aplikacji KSeF - wygasa 31.12.2026.
+// certificate: certyfikat KSeF (Typ 1, "uwierzytelnienie") - patrz README,
+// sekcja "Uwierzytelnianie certyfikatem".
+const ksefAuthMethod = (process.env.KSEF_AUTH_METHOD || 'token').toLowerCase();
+
 export const config = {
   ksef: {
     env: process.env.KSEF_ENV || 'test', // test | demo | prod
     nip: required('KSEF_NIP'),
-    authToken: required('KSEF_AUTH_TOKEN'),
+    authMethod: ksefAuthMethod,
+    authToken: ksefAuthMethod === 'token' ? required('KSEF_AUTH_TOKEN') : process.env.KSEF_AUTH_TOKEN || null,
+    certFile: ksefAuthMethod === 'certificate' ? required('KSEF_CERT_FILE') : process.env.KSEF_CERT_FILE || null,
+    keyFile: ksefAuthMethod === 'certificate' ? required('KSEF_KEY_FILE') : process.env.KSEF_KEY_FILE || null,
     subjectRole: process.env.KSEF_SUBJECT_ROLE || 'buyer', // buyer | seller | both
   },
   google: {

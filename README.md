@@ -387,6 +387,38 @@ samego Dysku Google:
    niech przynajmniej wypisze proponowaną ścieżkę i nazwę pliku, a samo
    wrzucenie zrób ręcznie przez aplikację/stronę Google Drive.
 
+**Gotowe prompty (kopiuj-wklej, wypełnij `<...>` przed wysłaniem, dołącz
+zdjęcie do wiadomości):**
+
+Wariant A - asystent ma podłączony i skonfigurowany Dysk Google (Claude z
+connectorem Google Drive, ChatGPT z Connectors) i ma **zapisać plik sam**:
+
+```
+Mam załączone zdjęcie <faktury / paragonu> - to <koszt/przychód>.
+Na moim Dysku Google, w folderze "<NAZWA GŁÓWNEGO FOLDERU, np. Faktury i rozliczenia>",
+znajdź podfolder o ścieżce <ROK>/<MIESIĄC dwucyfrowo, np. 09> odpowiadającej
+dacie wystawienia widocznej na zdjęciu (jeśli podfolder miesiąca nie istnieje,
+utwórz go, zachowując tę samą konwencję nazw).
+
+Zapisz to zdjęcie w tym folderze pod nazwą:
+scan_<koszt|przychod>_<krótki opis bez polskich znaków/spacji, ze znakami "_">.<jpg|png|pdf>
+
+Na końcu podaj pełną ścieżkę i nazwę pliku, którą wybrałeś/aś, żebym mógł to
+zweryfikować.
+```
+
+Wariant B - asystent **nie ma** zapisu do Dysku (tylko odczytuje zdjęcie) -
+prosisz go tylko o rozpoznanie danych, a wrzucenie robisz sam:
+
+```
+Mam załączone zdjęcie <faktury / paragonu> - to <koszt/przychód>.
+Odczytaj z niego datę wystawienia i podaj mi tylko:
+1. Rok i miesiąc (dwucyfrowo, np. 2026/09) - folder, do którego mam to wrzucić.
+2. Proponowaną nazwę pliku w formacie:
+   scan_<koszt|przychod>_<krótki opis bez polskich znaków/spacji>.<rozszerzenie zgodne ze zdjęciem>
+Nie zapisuj nigdzie pliku - podaj tylko te dwie informacje.
+```
+
 ⚠️ **Zawsze sprawdź, co asystent faktycznie zapisał** - odczyt daty/kwoty ze
 zdjęcia (zwłaszcza odręcznych paragonów albo słabej jakości fotografii) bywa
 błędny, a przy braku dedupu literówka w nazwie czy zły miesiąc nie zostaną

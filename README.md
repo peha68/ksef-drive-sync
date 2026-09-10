@@ -285,6 +285,101 @@ chęci przegenerowania starszych faktur nowym wyglądem).
    maila podsumowującego na `NOTIFY_EMAIL` (patrz sekcja "Powiadomienia
    mailowe").
 
+## FAQ - najczęstsze problemy
+
+**"W Twojej organizacji egzekwowana jest zasada organizacji, która
+uniemożliwia tworzenie kluczy kont usługi" (przy próbie service account)**
+Google od pewnego czasu domyślnie blokuje tworzenie kluczy JSON dla kont
+serwisowych na nowych projektach (`iam.disableServiceAccountKeyCreation`) -
+nawet bez formalnej organizacji. Można spróbować to wyłączyć w **IAM & Admin
+-> Organization Policies**, ale zwykle wymaga to uprawnień wykraczających
+poza rolę Właściciela projektu. Jeśli się nie uda: to dlatego ten projekt
+domyślnie używa OAuth 2.0 zamiast service account - patrz sekcja
+"Autoryzacja Google Drive (OAuth)".
+
+**Błąd 403 "API has not been used in project ... or it is disabled" przy
+pierwszym wywołaniu Drive/Gmail**
+Trzeba ręcznie włączyć dane API w Google Cloud Console: **APIs & Services ->
+Library** -> wyszukaj "Google Drive API" / "Gmail API" -> **Enable**. Zmiana
+propaguje się przez kilka minut - jeśli błąd się powtarza od razu po
+włączeniu, odczekaj chwilę i spróbuj ponownie.
+
+**Skrypt `get-refresh-token.js` działał, ale po kilku dniach sync przestał
+się autoryzować**
+Prawdopodobnie ekran zgody OAuth jest w trybie **"Testing"** - Google
+unieważnia wtedy refresh token po 7 dniach. Przełącz **Publishing status**
+na **"In production"** (OAuth consent screen w Google Cloud Console) -
+patrz sekcja "Autoryzacja Google Drive (OAuth)", krok 2b.
+
+**`get-refresh-token.js` nie zwrócił `refresh_token` (tylko `access_token`)**
+Google wydaje `refresh_token` tylko przy pierwszej zgodzie dla danej
+kombinacji użytkownik+aplikacja+zakresy - kolejne logowania bez wymuszenia
+zwracają tylko `access_token`. Skrypt już wymusza to przez
+`prompt: 'consent'`, ale jeśli mimo to nie dostaniesz tokenu: cofnij dostęp
+aplikacji na https://myaccount.google.com/permissions i uruchom skrypt
+ponownie.
+
+**KSeF zwraca błąd `21405` / `"dateRange" must not exceed 3 months`**
+To normalne ograniczenie API KSeF 2.0 przy zapytaniach o metadane faktur -
+`src/ksefClient.js` już dzieli dłuższe zakresy dat na kolejne okna ≤3
+miesięcy automatycznie. Jeśli widzisz ten błąd mimo to, sprawdź czy nie
+wywołujesz `queryInvoices()` bezpośrednio z własnym kodem pomijającym tę
+logikę.
+
+**Synchronizacja "wisi" bez końca / trwa bardzo długo przy pierwszym,
+dużym imporcie (np. od początku roku)**
+KSeF w praktyce potrafi zacząć zawieszać połączenia (bez błędu, po prostu
+nie odpowiada) po dłuższej serii żądań w krótkim czasie - obserwowane przy
+jednorazowym uzupełnianiu zaległości za wiele miesięcy naraz. Skrypt ma
+wbudowany twardy timeout 60s na fakturę (patrz "Jak to działa w skrócie",
+pkt 3), więc się nie zawiesi na stałe, ale pojedyncze faktury mogą wtedy
+wylądować jako błąd. Rozwiązanie: poczekaj kilkanaście-kilkadziesiąt minut i
+uruchom sync ponownie (duplikaty i tak zostaną pominięte) - albo dziel
+duży, jednorazowy import na mniejsze zakresy dat.
+
+**PDF się nie generuje / w logu "Nie znaleziono polecenia wkhtmltopdf"**
+Binarka `wkhtmltopdf` nie jest zainstalowana (`sudo apt install
+wkhtmltopdf`) albo nie jest w `PATH` użytkownika, którym uruchamiasz skrypt.
+To nie jest błąd krytyczny - XML i tak zostanie pobrany i wgrany normalnie
+(patrz sekcja "Generowanie PDF"). Po naprawieniu instalacji uzupełnij
+brakujące PDF-y przez `npm run backfill-pdfs` (sekcja 6) - nie trzeba nic
+pobierać ponownie z KSeF.
+
+**PDF wygenerował się, ale jest prawie pusty (brak danych sprzedawcy/kwot)**
+Jeśli trafiasz na to mimo aktualnej wersji parsera - prawdopodobnie faktura
+używa jawnego prefiksu namespace w XML (`<tns:Fa>` zamiast `<Fa>`), co
+zdarza się u części wystawców. `src/invoiceParser.js` ma już na to
+poprawkę (`removeNSPrefix: true`), ale jeśli mimo to widzisz pustą
+wizualizację dla konkretnej faktury, porównaj jej XML z przykładami w
+`invoiceParser.js` - być może trafiłeś na inny, jeszcze nieobsłużony wariant
+schematu.
+
+**`node --version` na serwerze pokazuje 18.x, a projekt wymaga 20+**
+Domyślne repozytoria Debiana (np. bookworm) mają starszą wersję Node.js.
+Zainstaluj nowszą z NodeSource:
+```bash
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+```
+⚠️ To podmienia **globalną, systemową** wersję Node - jeśli na tym samym
+serwerze działają inne skrypty/usługi Node.js, upewnij się najpierw, że nie
+wymagają one dokładnie wersji 18 (natywne zależności czasem trzeba wtedy
+przebudować: `npm rebuild`).
+
+**`rsync: command not found` przy przesyłaniu plików na serwer**
+Świeży Debian często go nie ma domyślnie: `sudo apt install -y rsync` (po
+obu stronach - i na maszynie źródłowej, i na serwerze docelowym, bo rsync
+przez SSH uruchamia proces po obu stronach).
+
+**Po `sudo rsync ...` dostaję `change_dir "/root/..." failed: No such file
+or directory`**
+Jeśli logujesz się jako zwykły użytkownik, a potem używasz `sudo` do
+kopiowania - `sudo` **nie zmienia** `$HOME`, więc `~` w poleceniu `sudo`
+nadal może rozwinąć się na katalog domowy roota (`/root`), a nie
+użytkownika, który wcześniej odebrał pliki przez `rsync`/`scp`. Podaj pełną
+ścieżkę jawnie (np. `/home/twoj_uzytkownik/...`) zamiast polegać na `~` w
+poleceniach z `sudo`.
+
 ## Możliwe rozszerzenia na później
 
 - Przejście z tokenu na certyfikat przed końcem 2026.

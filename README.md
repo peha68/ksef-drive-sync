@@ -51,10 +51,13 @@ ksef-drive-sync/
 │   └── logger.js            # Prosty logger (konsola + plik data/sync.log)
 ├── scripts/
 │   ├── get-refresh-token.js # Jednorazowa autoryzacja OAuth (uruchamiane lokalnie)
-│   └── backfill-pdfs.js     # Dogenerowuje brakujące PDF-y dla już pobranych XML-i
+│   ├── backfill-pdfs.js     # Dogenerowuje brakujące PDF-y dla już pobranych XML-i
+│   └── alert-failure.js     # Mailowy alert o awarii usługi (wołane przez systemd OnFailure=)
 ├── systemd/
 │   ├── ksef-drive-sync.service / .timer          # Codzienny sync
-│   └── ksef-drive-sync-monthly.service / .timer  # Miesięczne archiwum (10. dnia)
+│   ├── ksef-drive-sync-monthly.service / .timer  # Miesięczne archiwum (10. dnia)
+│   ├── ksef-drive-sync-alert@.service             # Alert mailowy przy awarii (OnFailure=, patrz sekcja 7)
+│   └── ksef-drive-sync.logrotate                  # Rotacja data/sync.log (patrz sekcja 7)
 ├── data/                    # Log (data/sync.log) - tworzone automatycznie, w .gitignore
 ├── certs/                   # Certyfikat KSeF (.crt/.key), tylko przy KSEF_AUTH_METHOD=certificate - w .gitignore
 ├── .env.example             # Szablon konfiguracji (skopiuj do .env i uzupełnij)
@@ -66,7 +69,9 @@ potem `driveClient.js` (upload XML), potem `invoiceParser.js` ->
 `invoiceHtml.js` -> `pdfRenderer.js` (wygenerowanie i upload PDF), na końcu
 `mailClient.js` (podsumowanie). `monthlyArchive.js` i `backfill-pdfs.js` to
 osobne wejścia korzystające z tych samych modułów (`driveClient.js`,
-`invoiceParser.js` itd.) - nie duplikują logiki.
+`invoiceParser.js` itd.) - nie duplikują logiki. `alert-failure.js` też
+korzysta z `mailClient.js`, ale ma osobne, węższe zadanie - patrz sekcja "7.
+Alerty o awarii i rotacja logów".
 
 ## Ważna uwaga o bibliotece KSeF
 
@@ -333,6 +338,52 @@ npm run backfill-pdfs
 Uruchamiaj ręcznie, kiedy potrzeba (np. po naprawieniu `wkhtmltopdf` na
 serwerze, albo po zmianie layoutu PDF - patrz `src/invoiceHtml.js` - i
 chęci przegenerowania starszych faktur nowym wyglądem).
+
+## 7. Alerty o awarii i rotacja logów
+
+Skrypt sam wysyła mailowe podsumowanie po każdym udanym uruchomieniu (patrz
+"Powiadomienia mailowe"), ale to nic nie pomoże, jeśli proces padnie **zanim**
+zdąży dojść do tego kodu (np. brakujący `.env`, literówka w konfiguracji po
+aktualizacji, padnięty `node_modules`) - wtedy usługa systemd po prostu
+zakończy się błędem po cichu, bez żadnego maila. `OnFailure=` w obu głównych
+plikach `.service` naprawia tę lukę - przy każdej awarii uruchamia dodatkową,
+jednorazową usługę `ksef-drive-sync-alert@.service`, która przez ten sam
+`mailClient.js` (Gmail API) wysyła osobny mail alarmowy na `NOTIFY_EMAIL`, z
+nazwą padniętej usługi i podpowiedzią komendy do `journalctl`.
+
+Dodatkowo `data/sync.log` rośnie bez końca - nic go domyślnie nie rotuje.
+`systemd/ksef-drive-sync.logrotate` to standardowa konfiguracja `logrotate`
+(miesięczna rotacja, 12 archiwalnych plików, kompresja) - bezpieczna, bo
+`src/logger.js` otwiera plik logu przez `fs.appendFileSync` przy każdym
+wpisie (nie trzyma otwartego uchwytu), więc zwykła rotacja przez zmianę
+nazwy pliku (bez `copytruncate`) nie gubi żadnych wpisów.
+
+Instalacja (jednorazowo, na serwerze):
+
+```bash
+# Alert o awarii - template do OnFailure=, plus przeładowanie po zmianie .service
+sudo cp systemd/ksef-drive-sync-alert@.service /etc/systemd/system/
+sudo systemctl daemon-reload
+
+# Rotacja logów - logrotate uruchamia się sam (przez cron/systemd timer logrotate,
+# standardowo już obecny w Debianie), nie trzeba włączać żadnego dodatkowego timera
+sudo cp systemd/ksef-drive-sync.logrotate /etc/logrotate.d/ksef-drive-sync
+```
+
+Ręczny test alertu (wysyła prawdziwy mail na `NOTIFY_EMAIL`, nie czekając na
+prawdziwą awarię):
+
+```bash
+cd /opt/ksef-drive-sync
+sudo -u ksefsync npm run alert-failure -- ksef-drive-sync.service
+```
+
+Test samej rotacji logów, bez czekania na koniec miesiąca:
+
+```bash
+sudo logrotate -d /etc/logrotate.d/ksef-drive-sync   # -d = "dry run", tylko pokazuje co by zrobił
+sudo logrotate -f /etc/logrotate.d/ksef-drive-sync   # -f = wymusza rotację od razu
+```
 
 ## Testowanie
 

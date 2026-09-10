@@ -15,7 +15,8 @@
     "sync": "node src/index.js",
     "archive": "node src/monthlyArchive.js",
     "backfill-pdfs": "node scripts/backfill-pdfs.js",
-    "get-refresh-token": "node scripts/get-refresh-token.js"
+    "get-refresh-token": "node scripts/get-refresh-token.js",
+    "alert-failure": "node scripts/alert-failure.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

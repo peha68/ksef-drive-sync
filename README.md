@@ -293,6 +293,96 @@ Uruchamiaj ręcznie, kiedy potrzeba (np. po naprawieniu `wkhtmltopdf` na
 serwerze, albo po zmianie layoutu PDF - patrz `src/invoiceHtml.js` - i
 chęci przegenerowania starszych faktur nowym wyglądem).
 
+## Testowanie
+
+Ten projekt **nie ma automatycznego zestawu testów** (bez Jest/Vitest, bez
+CI) - to prosty, jednoosobowy skrypt, nie biblioteka. Zamiast tego poniżej
+jest praktyczny sposób ręcznej weryfikacji każdego elementu z osobna, zanim
+zaufasz całości na produkcji. Dokładnie tak testowałem ten projekt podczas
+budowy.
+
+**1. Środowisko test KSeF przed prod.** Ustaw `KSEF_ENV=test` w `.env` i
+zaloguj się na https://ksef-test.mf.gov.pl, żeby wygenerować testowy token -
+dopiero po potwierdzeniu, że autoryzacja działa, przełącz na `prod`.
+
+**2. Samo zapytanie o faktury, bez pobierania/wgrywania** - szybki test
+połączenia z KSeF bez ryzyka utworzenia czegokolwiek:
+```bash
+node -e "
+const { queryInvoices } = await import('./src/ksefClient.js');
+const dateTo = new Date();
+const dateFrom = new Date(); dateFrom.setDate(dateFrom.getDate() - 7);
+const invoices = await queryInvoices(dateFrom, dateTo);
+console.log('Znaleziono:', invoices.length);
+" --input-type=module
+```
+
+**3. Dostęp do Dysku, bez KSeF** - sprawdza samo OAuth + docelowy folder:
+```bash
+node -e "
+const { google } = await import('googleapis');
+const { config } = await import('./src/config.js');
+const oauth2Client = new google.auth.OAuth2(config.google.clientId, config.google.clientSecret);
+oauth2Client.setCredentials({ refresh_token: config.google.refreshToken });
+const drive = google.drive({ version: 'v3', auth: oauth2Client });
+const res = await drive.files.get({ fileId: config.google.rootFolderId, fields: 'name' });
+console.log('Folder docelowy:', res.data.name);
+" --input-type=module
+```
+
+**4. Generowanie PDF w izolacji** (bez dotykania KSeF/Drive) - potwierdza,
+że `wkhtmltopdf` faktycznie działa w środowisku, w którym uruchamiasz
+skrypt (ważne: testuj tym samym użytkownikiem systemowym, np. `ksefsync`,
+którym realnie chodzi usługa - `PATH` bywa inny niż w Twojej interaktywnej
+sesji):
+```bash
+node -e "
+const { renderPdfFromHtml } = await import('./src/pdfRenderer.js');
+const pdf = await renderPdfFromHtml('<html><body><h1>Test</h1></body></html>');
+console.log('PDF:', pdf.length, 'bajtów');
+" --input-type=module
+```
+
+**5. Parser XML na realnej fakturze** - schemat FA(3) ma sporo wariantów
+(różni wystawcy, różne pola opcjonalne) - warto sprawdzić parser na
+własnych, prawdziwych danych, nie tylko na przykładzie z `ksef.podatki.gov.pl`:
+```bash
+node -e "
+const { parseInvoiceXml } = await import('./src/invoiceParser.js');
+const fs = await import('node:fs');
+const xml = fs.readFileSync('/ścieżka/do/faktury.xml', 'utf-8');
+console.log(JSON.stringify(parseInvoiceXml(xml), null, 2));
+" --input-type=module
+```
+
+**6. Wysyłka maila w izolacji:**
+```bash
+node -e "
+const { sendMail } = await import('./src/mailClient.js');
+await sendMail({ to: process.env.NOTIFY_EMAIL, subject: 'Test', text: 'Działa.' });
+console.log('Wysłano.');
+" --input-type=module
+```
+
+**7. Pełny przebieg, ręcznie, zanim włączysz automatyzację:**
+```bash
+node src/index.js
+```
+Sprawdź `data/sync.log`, czy pliki faktycznie wylądowały we właściwych
+folderach na Dysku, i czy przyszedł mail podsumowujący. Uruchom drugi raz -
+wszystko powinno zostać pominięte jako duplikaty (test dedupu).
+
+**8. Test przez systemd, nie tylko `node src/index.js` bezpośrednio** - jeśli
+wdrażasz na serwerze, koniecznie odpal usługę realnym mechanizmem, którym
+będzie startować na co dzień (`ProtectSystem=strict` i inne ograniczenia w
+pliku `.service` potrafią zachowywać się inaczej niż zwykłe uruchomienie
+z terminala):
+```bash
+sudo systemctl start ksef-drive-sync.service
+sudo systemctl status ksef-drive-sync.service
+journalctl -u ksef-drive-sync.service -n 30 --no-pager
+```
+
 ## Jak to działa w skrócie
 
 1. Skrypt pyta KSeF o faktury z ostatnich `INVOICE_LOOKBACK_DAYS` dni (domyślnie

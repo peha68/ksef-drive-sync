@@ -1,5 +1,9 @@
 # ksef-drive-sync
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](package.json)
+[![KSeF](https://img.shields.io/badge/KSeF-2.0-blue.svg)](https://ksef.podatki.gov.pl/)
+
 Skrypt Node.js, który okresowo pobiera faktury z KSeF 2.0 (koszty i/lub
 przychody - patrz `KSEF_SUBJECT_ROLE`) i zapisuje je na Dysku Google w
 strukturze `<folder główny>/<rok>/<miesiąc>/ksef_<koszt|przychod>_<numer>.xml`,
@@ -12,6 +16,23 @@ Nie kategoryzuje faktur (np. nie rozpoznaje "Paliwo") — to jest świadoma
 decyzja: prostsza logika, mniej miejsc do popsucia. Ręczne rozdzielanie do
 kategorii zostaje po Twojej stronie. Rozróżnienie koszt/przychód po
 prefiksie w nazwie pliku jest jedynym wbudowanym podziałem.
+
+## Wymagania
+
+- **Node.js 20+** (deweloperski/produkcyjny runtime; `engines` w `package.json`).
+- **Konto w KSeF 2.0** z wygenerowanym tokenem autoryzacyjnym (test i/lub
+  prod) - patrz sekcja "Konfiguracja KSeF".
+- **Konto Google** (Gmail) z dostępem do Google Cloud Console, do skonfigurowania
+  OAuth 2.0 dla Google Drive API i Gmail API - patrz sekcja "Autoryzacja
+  Google Drive (OAuth)". Nie jest wymagane konto Google Workspace - zwykłe,
+  darmowe konto Gmail wystarczy.
+- **`wkhtmltopdf`** zainstalowany w systemie (`sudo apt install wkhtmltopdf`
+  na Debianie/Ubuntu) - tylko do generowania PDF-ów; bez tego reszta
+  skryptu i tak działa (patrz sekcja "Generowanie PDF").
+- Serwer/maszyna z **systemd**, jeśli chcesz automatycznego, cyklicznego
+  uruchamiania (opisane dla Debiana, ale systemd timer działa tak samo na
+  każdej dystrybucji Linuksa, która go ma). Bez systemd da się uruchamiać
+  ręcznie albo przez `cron`.
 
 ## Ważna uwaga o bibliotece KSeF
 

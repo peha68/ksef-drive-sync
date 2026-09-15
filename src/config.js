@@ -28,6 +28,9 @@ export const config = {
     clientSecret: required('GOOGLE_OAUTH_CLIENT_SECRET'),
     refreshToken: required('GOOGLE_OAUTH_REFRESH_TOKEN'),
     rootFolderId: required('GOOGLE_DRIVE_ROOT_FOLDER_ID'),
+    // Opcjonalne - rejestr faktur (patrz src/invoiceRegister.js). Nieustawione
+    // = funkcja rejestru/dedup jest po prostu pomijana (sync działa jak dotąd).
+    registerSheetId: process.env.GOOGLE_REGISTER_SHEET_ID || null,
   },
   lookbackDays: parseInt(process.env.INVOICE_LOOKBACK_DAYS || '7', 10),
   logFile: process.env.LOG_FILE || './data/sync.log',

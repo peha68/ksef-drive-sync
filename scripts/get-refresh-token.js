@@ -37,6 +37,9 @@ const authUrl = oauth2Client.generateAuthUrl({
     'https://www.googleapis.com/auth/drive',
     // Tylko wysyłanie maila (podsumowanie synchronizacji) - nie czytanie skrzynki.
     'https://www.googleapis.com/auth/gmail.send',
+    // Rejestr faktur (arkusz) - dedup faktur z KSeF vs ręcznych skanów, patrz
+    // src/invoiceRegister.js i README, sekcja "9. Rejestr faktur i wykrywanie duplikatów".
+    'https://www.googleapis.com/auth/spreadsheets',
   ],
 });
 

@@ -48,11 +48,16 @@ ksef-drive-sync/
 │   ├── pdfRenderer.js       # Konwertuje HTML -> PDF przez wkhtmltopdf
 │   ├── mailClient.js        # Wysyłka maili przez Gmail API (z załącznikami)
 │   ├── monthlyArchive.js    # Archiwum miesięczne: ZIP za poprzedni miesiąc -> mail
+│   ├── sheetsClient.js      # Cienki klient Google Sheets API (rejestr faktur)
+│   ├── invoiceRegister.js   # Rejestr faktur + wykrywanie duplikatów (sekcja 9)
 │   └── logger.js            # Prosty logger (konsola + plik data/sync.log)
 ├── scripts/
-│   ├── get-refresh-token.js # Jednorazowa autoryzacja OAuth (uruchamiane lokalnie)
-│   ├── backfill-pdfs.js     # Dogenerowuje brakujące PDF-y dla już pobranych XML-i
-│   └── alert-failure.js     # Mailowy alert o awarii usługi (wołane przez systemd OnFailure=)
+│   ├── get-refresh-token.js    # Jednorazowa autoryzacja OAuth (uruchamiane lokalnie)
+│   ├── backfill-pdfs.js        # Dogenerowuje brakujące PDF-y dla już pobranych XML-i
+│   ├── alert-failure.js        # Mailowy alert o awarii usługi (wołane przez systemd OnFailure=)
+│   ├── setup-register-sheet.js # Jednorazowo tworzy arkusz "Rejestr faktur" (sekcja 9)
+│   ├── register-scan.js        # Rejestruje ręczny skan + sprawdza duplikat (sekcja 9)
+│   └── backfill-register.js    # Uzupełnia rejestr o faktury wgrane przed tą funkcją (sekcja 9)
 ├── systemd/
 │   ├── ksef-drive-sync.service / .timer          # Codzienny sync
 │   ├── ksef-drive-sync-monthly.service / .timer  # Miesięczne archiwum (10. dnia)
@@ -403,8 +408,10 @@ utwórz go, zachowując tę samą konwencję nazw).
 Zapisz to zdjęcie w tym folderze pod nazwą:
 scan_<koszt|przychod>_<krótki opis bez polskich znaków/spacji, ze znakami "_">.<jpg|png|pdf>
 
-Na końcu podaj pełną ścieżkę i nazwę pliku, którą wybrałeś/aś, żebym mógł to
-zweryfikować.
+Na końcu podaj:
+1. Pełną ścieżkę i nazwę pliku, którą wybrałeś/aś, żebym mógł to zweryfikować.
+2. Numer faktury, NIP dostawcy (sprzedawcy) i kwotę brutto - odczytane ze zdjęcia,
+   dokładnie tak jak widnieją na dokumencie (potrzebne do rejestru duplikatów).
 ```
 
 Wariant B - asystent **nie ma** zapisu do Dysku (tylko odczytuje zdjęcie) -
@@ -412,17 +419,24 @@ prosisz go tylko o rozpoznanie danych, a wrzucenie robisz sam:
 
 ```
 Mam załączone zdjęcie <faktury / paragonu> - to <koszt/przychód>.
-Odczytaj z niego datę wystawienia i podaj mi tylko:
-1. Rok i miesiąc (dwucyfrowo, np. 2026/09) - folder, do którego mam to wrzucić.
+Odczytaj z niego i podaj mi tylko:
+1. Rok i miesiąc wystawienia (dwucyfrowo, np. 2026/09) - folder, do którego mam to wrzucić.
 2. Proponowaną nazwę pliku w formacie:
    scan_<koszt|przychod>_<krótki opis bez polskich znaków/spacji>.<rozszerzenie zgodne ze zdjęciem>
-Nie zapisuj nigdzie pliku - podaj tylko te dwie informacje.
+3. Numer faktury, NIP dostawcy (sprzedawcy) i kwotę brutto - dokładnie tak jak
+   widnieją na dokumencie.
+Nie zapisuj nigdzie pliku - podaj tylko te informacje.
 ```
 
-⚠️ **Zawsze sprawdź, co asystent faktycznie zapisał** - odczyt daty/kwoty ze
-zdjęcia (zwłaszcza odręcznych paragonów albo słabej jakości fotografii) bywa
-błędny, a przy braku dedupu literówka w nazwie czy zły miesiąc nie zostaną
-wykryte automatycznie przez żaden mechanizm w tym projekcie.
+⚠️ **Zawsze sprawdź, co asystent faktycznie zapisał/odczytał** - rozpoznanie
+danych ze zdjęcia (zwłaszcza odręcznych paragonów albo słabej jakości
+fotografii) bywa błędne. Po wgraniu pliku **zarejestruj go w rejestrze
+faktur** (sekcja 9 niżej) - bez tego kroku wykrywanie duplikatów po prostu
+nie zadziała dla tego skanu:
+
+```bash
+node scripts/register-scan.js <rok> <miesiąc> <koszt|przychod> <nazwa_pliku> <numer_faktury> <nip_dostawcy> <kwota_brutto>
+```
 
 ## 6. Uzupełnianie brakujących PDF-ów
 
@@ -550,6 +564,76 @@ sudo systemctl start ksef-drive-sync.service
 sudo systemctl status ksef-drive-sync.service
 journalctl -u ksef-drive-sync.service -n 50 --no-pager
 ```
+
+## 9. Rejestr faktur i wykrywanie duplikatów
+
+**Problem, który to rozwiązuje:** faktury z KSeF są automatycznie deduplikowane
+po numerze KSeF (patrz sekcja 5a), ale **ręczne skany nie są porównywane z
+niczym**. Jeśli ta sama faktura istnieje dwa razy - raz jako `scan_koszt_*`
+(sfotografowany papierowy dokument) i raz jako `ksef_koszt_*` (ten sam
+dokument, ale dostawca w końcu wystawił go też przez KSeF) - nic tego
+automatycznie nie zauważy.
+
+**Rozwiązanie:** dodatkowy arkusz Google Sheets "Rejestr faktur" (opcjonalny,
+`GOOGLE_REGISTER_SHEET_ID` w `.env`) - jeden wiersz na fakturę, niezależnie od
+źródła. Dopasowanie duplikatu = **dokładna** zgodność trójki *(numer faktury,
+NIP dostawcy, kwota brutto)* - świadomo bez rozmytych heurystyk po dacie czy
+nazwie kontrahenta (patrz komentarz w `src/invoiceRegister.js`). Wpis z
+niekompletnym kluczem (brak któregokolwiek z tych trzech pól) nigdy nie jest
+porównywany - lepszy brak wykrycia niż fałszywy alarm.
+
+### 9a. Jednorazowa konfiguracja
+
+1. Refresh token musi mieć zakres `spreadsheets` - jeśli generowałeś go PRZED
+   dodaniem tej funkcji, uruchom ponownie i podmień w `.env`:
+   ```bash
+   npm run get-refresh-token
+   ```
+2. Utwórz arkusz (na koncie Google z `GOOGLE_OAUTH_REFRESH_TOKEN`):
+   ```bash
+   npm run setup-register-sheet
+   ```
+   Wypisze `GOOGLE_REGISTER_SHEET_ID=...` - dopisz do `.env` (lokalnie i na
+   serwerze, tak samo jak każdą inną zmienną).
+3. Uzupełnij rejestr o faktury wgrane PRZED tą funkcją:
+   ```bash
+   npm run backfill-register
+   ```
+   Dla plików `ksef_*.xml` robi to w pełni automatycznie (pobiera, parsuje,
+   rejestruje, sprawdza duplikaty). Dla `scan_*` **nie da się** automatycznie
+   wyciągnąć numeru/NIP-u/kwoty ze zdjęcia - skrypt tylko wypisuje gotowy
+   szkielet komendy `register-scan.js` na każdy brakujący skan, do ręcznego
+   uzupełnienia.
+
+### 9b. Bieżące działanie
+
+- **Faktury z KSeF** - rejestrowane automatycznie przy każdym normalnym
+  uruchomieniu `src/index.js` (`npm run sync`), zaraz po wgraniu XML-a. Zero
+  dodatkowej pracy.
+- **Ręczne skany** - trzeba zarejestrować ręcznie, PO wgraniu pliku na Dysk
+  (patrz sekcja 5a):
+  ```bash
+  node scripts/register-scan.js <rok> <miesiąc> <koszt|przychod> <plikNazwa> <numerFaktury> <nipDostawcy> <kwotaBrutto> [nazwaDostawcy] [dataWystawienia] [waluta]
+  ```
+  np.:
+  ```bash
+  node scripts/register-scan.js 2026 09 koszt scan_koszt_paliwo_orlen.jpg FV/123/2026 5261234567 214.50 "Orlen S.A." 2026-09-12
+  ```
+  Skrypt od razu sprawdza duplikat i wypisuje wynik w terminalu.
+
+Jeśli zostanie wykryty duplikat (w dowolną stronę - nowa faktura z KSeF
+pasująca do już zarejestrowanego skanu, albo nowy skan pasujący do już
+pobranej faktury z KSeF), kolumna `duplikat` w arkuszu jest ustawiana **po
+obu stronach**, a przy trafieniu z poziomu normalnego syncu KSeF temat maila
+podsumowującego dostaje prefiks `⚠️ N możliwy(ch) duplikat(ów)` z listą w
+treści. Wykrycie nie usuwa niczego automatycznie - zawsze sprawdź ręcznie w
+arkuszu i na Dysku, czy to naprawdę ta sama faktura, zanim skasujesz kopię.
+
+**Ograniczenie NIP-u:** kolumna `nipDostawcy` dla faktur z KSeF to zawsze NIP
+**sprzedawcy** (`Podmiot1`), niezależnie od kierunku (`koszt`/`przychod`) - dla
+faktur przychodowych to Twój własny NIP (nieistotne dla dedupu, bo przychody
+nie mają papierowego odpowiednika do pomylenia, ale trzyma spójny schemat
+kolumn).
 
 ## Testowanie
 

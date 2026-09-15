@@ -6,6 +6,7 @@ import { parseInvoiceXml } from './invoiceParser.js';
 import { renderInvoiceHtml } from './invoiceHtml.js';
 import { renderPdfFromHtml } from './pdfRenderer.js';
 import { sendMail } from './mailClient.js';
+import { registerInvoice } from './invoiceRegister.js';
 
 // Subject1 = sprzedawca (faktury wystawione/przychodowe),
 // Subject2 = nabywca (faktury otrzymane/kosztowe) - patrz ksefClient.js.
@@ -90,6 +91,7 @@ async function run() {
   let pdfFailed = 0;
   const uploadedList = [];
   const failedList = [];
+  const duplicateWarnings = [];
 
   for (const invoice of invoices) {
     const ksefNumber = invoice.ksefNumber || invoice.ksefReferenceNumber;
@@ -129,17 +131,54 @@ async function run() {
           const xml = await downloadInvoiceXml(ksefNumber);
           await uploadFile(folderId, xmlFilename, xml, 'application/xml');
 
-          // PDF to wygoda, nie dokument źródłowy - jego błąd nie powinien
-          // cofać już udanego wgrania XML ani liczyć się jako pełny błąd
-          // faktury (patrz komentarz niżej o ograniczeniu tego podejścia).
+          // Parsowane raz, reużywane i przez PDF, i przez rejestr - błąd
+          // parsowania nie powinien cofać już udanego wgrania XML (patrz
+          // komentarz o ograniczeniu tego podejścia), więc oba dalsze kroki
+          // są opcjonalne/nie-fatalne.
+          let parsed = null;
           try {
-            const parsed = parseInvoiceXml(xml);
-            const html = renderInvoiceHtml(parsed, kierunek);
-            const pdf = await renderPdfFromHtml(html);
-            await uploadFile(folderId, pdfFilename, pdf, 'application/pdf');
-          } catch (pdfErr) {
-            logger.error(`Nie udało się wygenerować PDF dla faktury ${ksefNumber}: ${pdfErr.message}`);
-            pdfFailed++;
+            parsed = parseInvoiceXml(xml);
+          } catch (parseErr) {
+            logger.error(`Nie udało się sparsować XML faktury ${ksefNumber} (PDF i rejestr pominięte): ${parseErr.message}`);
+          }
+
+          if (parsed) {
+            try {
+              const html = renderInvoiceHtml(parsed, kierunek);
+              const pdf = await renderPdfFromHtml(html);
+              await uploadFile(folderId, pdfFilename, pdf, 'application/pdf');
+            } catch (pdfErr) {
+              logger.error(`Nie udało się wygenerować PDF dla faktury ${ksefNumber}: ${pdfErr.message}`);
+              pdfFailed++;
+            }
+
+            // Rejestr faktur jest opcjonalny (GOOGLE_REGISTER_SHEET_ID) - patrz
+            // src/invoiceRegister.js. Sprzedawca = "dostawca" niezależnie od
+            // kierunku (dla przychodu to my sami - nieistotne dla dedupu, ale
+            // trzyma spójny schemat kolumn).
+            if (config.google.registerSheetId) {
+              try {
+                const sprzedawca = parsed.sprzedawca ?? {};
+                const duplicates = await registerInvoice({
+                  rok: year,
+                  miesiac: month,
+                  zrodlo: 'ksef',
+                  kierunek,
+                  numerFaktury: parsed.numerFaktury,
+                  nipDostawcy: sprzedawca.nip,
+                  nazwaDostawcy: sprzedawca.nazwa,
+                  dataWystawienia: parsed.dataWystawienia,
+                  kwotaBrutto: parsed.sumaBrutto,
+                  waluta: parsed.waluta,
+                  plikNazwa: xmlFilename,
+                });
+                if (duplicates.length) {
+                  duplicateWarnings.push({ ksefNumber, matches: duplicates });
+                }
+              } catch (regErr) {
+                logger.error(`Nie udało się zarejestrować faktury ${ksefNumber} w rejestrze: ${regErr.message}`);
+              }
+            }
           }
         })(),
         PER_INVOICE_TIMEOUT_MS,
@@ -173,11 +212,12 @@ async function run() {
   );
 
   const subject =
-    uploaded > 0
+    (uploaded > 0
       ? `ksef-drive-sync: ${uploaded} nowych faktur`
       : failed > 0
         ? `ksef-drive-sync: 0 nowych faktur, ${failed} błędów`
-        : 'ksef-drive-sync: brak nowych faktur';
+        : 'ksef-drive-sync: brak nowych faktur') +
+    (duplicateWarnings.length ? ` - ⚠️ ${duplicateWarnings.length} możliwy(ch) duplikat(ów)` : '');
 
   const bodyParts = [
     `Zakres: ${dateFrom.toISOString().slice(0, 10)} - ${dateTo.toISOString().slice(0, 10)}`,
@@ -193,6 +233,15 @@ async function run() {
   }
   if (failedList.length) {
     bodyParts.push('', 'Błędy:', ...failedList.map((f) => `- ${f.ksefNumber}: ${f.error}`));
+  }
+  if (duplicateWarnings.length) {
+    bodyParts.push(
+      '',
+      '⚠️ MOŻLIWE DUPLIKATY (ta sama faktura wygląda na już zarejestrowaną jako ręczny skan lub inna faktura KSeF - sprawdź w rejestrze i na Dysku):',
+      ...duplicateWarnings.map(
+        (w) => `- ${w.ksefNumber}: pasuje do ${w.matches.map((m) => `${m.zrodlo === 'ksef' ? 'KSeF' : 'skan'} "${m.plikNazwa}"`).join(', ')}`,
+      ),
+    );
   }
 
   await notify(subject, bodyParts.join('\n'));

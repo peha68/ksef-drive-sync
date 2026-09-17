@@ -138,6 +138,28 @@ export async function uploadFile(folderId, filename, buffer, mimeType) {
 }
 
 /**
+ * Nadpisuje ZAWARTOŚĆ istniejącego pliku (ten sam fileId, ta sama nazwa,
+ * ewentualne udostępnione linki zostają ważne) - w odróżnieniu od
+ * uploadFile(), które zawsze TWORZY nowy plik (Drive dopuszcza duplikaty
+ * nazw w jednym folderze), więc do poprawiania już wgranego PDF-a trzeba
+ * użyć tej funkcji, nie uploadFile() + ręcznego usuwania starego.
+ */
+export async function updateFileContent(fileId, buffer, mimeType) {
+  const drive = getDrive();
+  const { Readable } = await import('node:stream');
+
+  await drive.files.update({
+    fileId,
+    media: {
+      mimeType,
+      body: Readable.from(buffer),
+    },
+  });
+
+  logger.info(`Nadpisano zawartość pliku ${fileId}.`);
+}
+
+/**
  * Zwraca listę {id, name} podfolderów bezpośrednio w danym folderze.
  */
 export async function listSubfolders(parentId) {

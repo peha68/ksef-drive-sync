@@ -54,6 +54,7 @@ ksef-drive-sync/
 ├── scripts/
 │   ├── get-refresh-token.js    # Jednorazowa autoryzacja OAuth (uruchamiane lokalnie)
 │   ├── backfill-pdfs.js        # Dogenerowuje brakujące PDF-y dla już pobranych XML-i
+│   ├── regenerate-month-pdfs.js # Wymusza regenerację (nadpisanie) PDF-ów za dany rok/miesiąc
 │   ├── alert-failure.js        # Mailowy alert o awarii usługi (wołane przez systemd OnFailure=)
 │   ├── setup-register-sheet.js # Jednorazowo tworzy arkusz "Rejestr faktur" (sekcja 9)
 │   ├── register-scan.js        # Rejestruje ręczny skan + sprawdza duplikat (sekcja 9)
@@ -452,8 +453,25 @@ npm run backfill-pdfs
 ```
 
 Uruchamiaj ręcznie, kiedy potrzeba (np. po naprawieniu `wkhtmltopdf` na
-serwerze, albo po zmianie layoutu PDF - patrz `src/invoiceHtml.js` - i
-chęci przegenerowania starszych faktur nowym wyglądem).
+serwerze). **Uwaga:** to narzędzie tylko UZUPEŁNIA brakujące PDF-y - plik,
+który już istnieje w folderze, jest pomijany, nawet jeśli jego wygląd jest
+przestarzały/błędny. Do przegenerowania PDF-ów, które już są na Dysku (np.
+po zmianie w `src/invoiceParser.js`/`src/invoiceHtml.js`), użyj zamiast
+tego `scripts/regenerate-month-pdfs.js` (patrz niżej) - inaczej stary,
+błędny PDF zostanie bez zmian.
+
+### 6a. Wymuszona regeneracja PDF-ów za dany miesiąc
+
+W odróżnieniu od `backfill-pdfs`, to NADPISUJE istniejące PDF-y (ten sam
+plik na Dysku, przez `drive.files.update()` - link do niego, jeśli był
+udostępniony, zostaje ważny). Użyj po każdej zmianie w
+`invoiceParser.js`/`invoiceHtml.js`, która wpływa na wygląd już
+wygenerowanych faktur (np. naprawa pustej kolumny "Wartość brutto",
+2026-09-17).
+
+```bash
+npm run regenerate-month-pdfs -- 2026 09
+```
 
 ## 7. Alerty o awarii i rotacja logów
 

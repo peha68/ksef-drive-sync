@@ -15,6 +15,7 @@
     "sync": "node src/index.js",
     "archive": "node src/monthlyArchive.js",
     "backfill-pdfs": "node scripts/backfill-pdfs.js",
+    "regenerate-month-pdfs": "node scripts/regenerate-month-pdfs.js",
     "get-refresh-token": "node scripts/get-refresh-token.js",
     "alert-failure": "node scripts/alert-failure.js",
     "setup-register-sheet": "node scripts/setup-register-sheet.js",

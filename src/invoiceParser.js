@@ -82,6 +82,50 @@ function firstNonEmpty(...values) {
   return '';
 }
 
+// P_12 (stawka VAT) to nie zawsze liczba - TStawkaPodatku ze schematu FA(3)
+// dopuszcza też kody bez VAT: "0 KR"/"0 WDT"/"0 EX" (stawka 0%), "zw"
+// (zwolnione), "oo" (odwrotne obciążenie), "np I"/"np II" (niepodlegające) -
+// we wszystkich tych przypadkach na fakturze nie doliczono VAT, więc brutto
+// = netto. Zwraca null (nie 0!) dla naprawdę nierozpoznanego kodu, żeby
+// wywołujący mógł zrezygnować z wyliczenia zamiast zgadywać.
+function vatRatePercent(stawkaVat) {
+  const s = text(stawkaVat).trim();
+  if (!s) return null;
+  if (/^\d+([.,]\d+)?$/.test(s)) return Number(s.replace(',', '.'));
+  if (['0 KR', '0 WDT', '0 EX', 'zw', 'oo', 'np I', 'np II'].includes(s)) return 0;
+  return null;
+}
+
+// P_11A ("Wartość sprzedaży brutto") to pole ze schematu FA(3) opisane
+// wyłącznie dla szczególnego przypadku z art. 106e ust. 7-8 ustawy - w
+// praktyce PRAWIE ŻADEN wystawca go nie wypełnia (potwierdzone na realnych
+// fakturach z mOrganizera/CashDirector), więc kolumna "Wartość brutto" była
+// pusta dla każdej pozycji niemal zawsze - niezauważalne przy jednej
+// pozycji (suma "Do zapłaty" pod spodem sprawiała wrażenie, że to ta sama
+// wartość), rażące przy kilku. Licz brutto samodzielnie z tego, co faktura
+// faktycznie podaje: P_11A jeśli jest (najbardziej autorytatywne), inaczej
+// netto+VAT z P_11Vat jeśli jest, inaczej netto*(1+stawka/100) gdy stawka
+// jest liczbą lub jednym z bezpodatkowych kodów. Jeśli nic z tego się nie
+// da policzyć - pusta komórka, nie zgadywanie.
+function computeLineBrutto(w) {
+  const explicit = text(w.P_11A);
+  if (explicit) return explicit;
+
+  const netto = Number(text(w.P_11).replace(',', '.'));
+  if (!Number.isFinite(netto)) return '';
+
+  const vatKwota = text(w.P_11Vat);
+  if (vatKwota) {
+    const vat = Number(vatKwota.replace(',', '.'));
+    if (Number.isFinite(vat)) return (netto + vat).toFixed(2);
+  }
+
+  const rate = vatRatePercent(w.P_12);
+  if (rate !== null) return (netto * (1 + rate / 100)).toFixed(2);
+
+  return '';
+}
+
 function parseParty(podmiot) {
   if (!podmiot) return null;
   const dane = podmiot.DaneIdentyfikacyjne ?? {};
@@ -143,7 +187,7 @@ export function parseInvoiceXml(xml) {
     ilosc: text(w.P_8B),
     cenaNetto: firstNonEmpty(w.P_9A, w.P_9B),
     wartoscNetto: text(w.P_11),
-    wartoscBrutto: text(w.P_11A),
+    wartoscBrutto: computeLineBrutto(w),
     stawkaVat: text(w.P_12),
   }));
 
